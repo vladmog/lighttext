@@ -1,7 +1,9 @@
-// LTX1: UTF-8 packets; CRC-32/ISO-HDLC; eight data dots plus one clock dot.
+// LTX1/LTX2: UTF-8 packets; CRC-32/ISO-HDLC; eight data dots plus one clock dot.
 export const SYMBOL_MS = 250;
 export const CHUNK_SIZE = 64;
-export const MAX_BYTES = 8192;
+export const COUNTDOWN_MS = 3000;
+// The 32-bit wire length is a format bound, not the former 8 KiB product cap.
+export const MAX_BYTES = 0xffffffff;
 export const MAGIC = Uint8Array.of(76, 84, 88, 49, 166, 57, 197, 114);
 const enc = new TextEncoder();
 const dec = new TextDecoder('utf-8', { fatal: true });
@@ -15,49 +17,70 @@ export function crc32(bytes) {
 }
 function put32(a, p, v) { new DataView(a.buffer, a.byteOffset, a.byteLength).setUint32(p, v); }
 function get32(a, p) { return new DataView(a.buffer, a.byteOffset, a.byteLength).getUint32(p); }
+export function measureText(text, symbolMs = SYMBOL_MS) {
+  const bytes = enc.encode(text).length;
+  if (!bytes) throw new Error('Enter a message first.');
+  if (bytes > MAX_BYTES) throw new Error('This document exceeds the wire format capacity. Split it into smaller documents.');
+  if (!(symbolMs > 0)) throw new Error('Transmission period must be positive.');
+  const packets = Math.ceil(bytes / CHUNK_SIZE), symbols = bytes + packets * (bytes > 8192 ? 29 : 25);
+  return { bytes, packets, symbols, seconds: symbols * symbolMs / 1000 };
+}
 export function encode(text) {
   const bytes = enc.encode(text);
   if (!bytes.length) throw new Error('Enter a message first.');
-  if (bytes.length > MAX_BYTES) throw new Error('Keep the message under 8 KB. Shorter messages are faster to record.');
-  const id = crc32(bytes), count = Math.ceil(bytes.length / CHUNK_SIZE), packets = [];
+  if (bytes.length > MAX_BYTES) throw new Error('This document exceeds the wire format capacity. Split it into smaller documents.');
+  // Keep existing short-message recordings compatible; LTX2 widens chunk indexes
+  // and counts to 32 bits so large documents do not wrap at 65,535 chunks.
+  const extended = bytes.length > 8192, header = extended ? 25 : 21;
+  const id = crc32(bytes), count = Math.ceil(bytes.length / CHUNK_SIZE);
+  const symbols = new Uint8Array(bytes.length + count * (header + 4));
+  let offset = 0;
   for (let index = 0; index < count; index++) {
-    const chunk = bytes.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE);
-    const p = new Uint8Array(25 + chunk.length);
-    p.set(MAGIC); put32(p, 8, id); put32(p, 12, bytes.length);
-    p[16] = index >>> 8; p[17] = index & 255;
-    p[18] = count >>> 8; p[19] = count & 255; p[20] = chunk.length;
-    p.set(chunk, 21); put32(p, 21 + chunk.length, crc32(p.subarray(8, 21 + chunk.length)));
-    packets.push(p);
+    const chunk = bytes.subarray(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE);
+    const p = symbols.subarray(offset, offset + header + 4 + chunk.length);
+    p.set(MAGIC); if (extended) p[3] = 50;
+    put32(p, 8, id); put32(p, 12, bytes.length);
+    if (extended) { put32(p, 16, index); put32(p, 20, count); p[24] = chunk.length; }
+    else { p[16] = index >>> 8; p[17] = index & 255; p[18] = count >>> 8; p[19] = count & 255; p[20] = chunk.length; }
+    p.set(chunk, header); put32(p, header + chunk.length, crc32(p.subarray(8, header + chunk.length)));
+    offset += p.length;
   }
-  const symbols = new Uint8Array(packets.reduce((n, p) => n + p.length, 0));
-  let offset = 0; for (const p of packets) { symbols.set(p, offset); offset += p.length; }
   return { symbols, bytes: bytes.length, packets: count, seconds: symbols.length * SYMBOL_MS / 1000 };
+}
+export function duration(seconds) {
+  const n = Math.max(0, Math.ceil(seconds));
+  if (n < 60) return `${n} sec`;
+  if (n < 3600) return `${Math.floor(n / 60)} min ${n % 60} sec`;
+  if (n < 86400) return `${Math.floor(n / 3600)} hr ${Math.floor(n % 3600 / 60)} min`;
+  return `${Math.floor(n / 86400)} days ${Math.floor(n % 86400 / 3600)} hr`;
 }
 export class PacketDecoder {
   constructor() { this.buffer = []; this.messages = new Map(); this.result = null; this.checked = 0; this.bad = 0; }
   push(byte) {
     this.buffer.push(byte);
     while (this.buffer.length >= 8) {
-      if (!MAGIC.every((b, i) => this.buffer[i] === b)) { this.buffer.shift(); continue; }
-      if (this.buffer.length < 21) return;
-      const h = Uint8Array.from(this.buffer.slice(0, 21));
-      const id = get32(h, 8), length = get32(h, 12), index = h[16] * 256 + h[17];
-      const count = h[18] * 256 + h[19], size = h[20];
+      if (!MAGIC.every((b, i) => i === 3 ? [49, 50].includes(this.buffer[i]) : this.buffer[i] === b)) { this.buffer.shift(); continue; }
+      const extended = this.buffer[3] === 50, header = extended ? 25 : 21;
+      if (this.buffer.length < header) return;
+      const h = Uint8Array.from(this.buffer.slice(0, header));
+      const id = get32(h, 8), length = get32(h, 12);
+      const index = extended ? get32(h, 16) : h[16] * 256 + h[17];
+      const count = extended ? get32(h, 20) : h[18] * 256 + h[19], size = h[header - 1];
       if (!length || length > MAX_BYTES || count !== Math.ceil(length / CHUNK_SIZE) || index >= count ||
           size !== Math.min(CHUNK_SIZE, length - index * CHUNK_SIZE)) { this.buffer.shift(); continue; }
-      if (this.buffer.length < size + 25) return;
-      const p = Uint8Array.from(this.buffer.slice(0, size + 25));
-      if (crc32(p.subarray(8, 21 + size)) !== get32(p, 21 + size)) {
+      if (this.buffer.length < size + header + 4) return;
+      const p = Uint8Array.from(this.buffer.slice(0, size + header + 4));
+      if (crc32(p.subarray(8, header + size)) !== get32(p, header + size)) {
         this.bad++; this.buffer.shift(); continue;
       }
-      this.buffer.splice(0, size + 25); this.checked++;
+      this.buffer.splice(0, size + header + 4); this.checked++;
       const key = `${id}:${length}`;
       if (!this.messages.has(key)) {
         // Bound memory even for a video containing many unrelated transmissions.
         if (this.messages.size >= 16) this.messages.delete(this.messages.keys().next().value);
         this.messages.set(key, { id, length, count, chunks: new Map() });
       }
-      const m = this.messages.get(key); m.chunks.set(index, p.slice(21, 21 + size));
+      const m = this.messages.get(key); m.chunks.set(index, p.slice(header, header + size));
       if (m.chunks.size === count) {
         const all = new Uint8Array(length);
         for (const [i, c] of m.chunks) all.set(c, i * CHUNK_SIZE);

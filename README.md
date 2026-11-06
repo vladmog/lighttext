@@ -9,8 +9,9 @@ external libraries, uploaded videos, or persistence of user messages.
 
 - **Transmit:** enter text, press Play, and record all five fixed markers. After a
   three-second countdown, the message repeats until stopped. Record two full
-  passes to give packet recovery another opportunity. The estimated duration is
-  shown before playback. Keep the transmitting page in the foreground.
+  passes to give packet recovery another opportunity. The estimated time to the first complete transmission is shown before playback,
+  including the countdown and framing. Remaining time updates during each pass.
+  Open UTF-8 plain-text documents and code files with **Open text file**. Keep the transmitting page in the foreground.
 - **Decode:** choose a recording and wait, then Copy. Tabs, spaces, newlines,
   programming punctuation (including pipes), and Unicode are supported. Plain
   ASCII characters take one data symbol; other Unicode characters may use more.
@@ -68,7 +69,7 @@ also decoded. These are synthetic checks, not real camera recordings.
 `main`. Enable GitHub Pages with **GitHub Actions** as its source. All assets use
 relative paths, so a repository URL works without a domain or server configuration.
 
-## Protocol (LTX1)
+## Protocol (LTX1 and LTX2)
 
 A 5×5 lattice has five always-lit orientation markers: four corners and the middle
 of the top edge. Other perimeter positions stay black. The inner 3×3 is read in
@@ -92,9 +93,15 @@ Text is UTF-8, split into 64-byte chunks. Each packet contains:
 
 Multibyte integers are big-endian. CRC is CRC-32/ISO-HDLC. The receiver retains
 validated chunks across repeated passes and requires both packet and full-message
-checks before presenting text. It tries mirrored readings too. The application
-limit is 8 KiB per message. At four symbols per second, long messages take minutes;
-there are 25 framing/check bytes per chunk. Repetition is the recovery mechanism;
+checks before presenting text. It tries mirrored readings too. The former 8 KiB application cap has been removed. Messages above 8 KiB use
+LTX2: magic byte 3 becomes `32` (hex), chunk index and count each widen to four
+bytes, chunk length moves to byte 24, and payload starts at byte 25. LTX2 adds
+29 framing/check bytes per chunk. The decoder accepts both versions. The 32-bit
+message-length field permits up to 4,294,967,295 bytes in the format; available
+browser memory imposes a much lower practical limit. Long messages can take hours
+or days at four symbols per second; no two-hour video cap is imposed by the app.
+Existing short-message recordings remain compatible. Reopen the updated app on
+both devices for large-document support. Repetition is the recovery mechanism;
 there is no claim of forward error correction within a damaged packet.
 
 The decoder samples the local video at 15 observations per second using sequential

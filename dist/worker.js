@@ -1,5 +1,5 @@
-import { GridDetector } from './vision.js';
-import { SignalDecoder } from './protocol.js';
+import { GridDetector } from './vision.js?v=2';
+import { SignalDecoder } from './protocol.js?v=2';
 let detector = new GridDetector(), normal = new SignalDecoder(), mirrored = new SignalDecoder(), found = 0;
 function mirror(bits) { let v = 0; for (let i = 0; i < 9; i++) if (bits & (1 << i)) v |= 1 << (Math.floor(i / 3) * 3 + 2 - i % 3); return v; }
 self.onmessage = ({ data }) => {

@@ -40,3 +40,14 @@ The release is a working browser prototype, not a certified optical link. Do not
 claim the synthetic tests prove reliable decoding from arbitrary phone footage.
 
 Local QA artifacts are ignored under `qa/`; they contain synthetic text only.
+
+## Document and timing update
+
+- Removed the 8 KiB product limit; added backward-compatible LTX2 for large text.
+- Exact round trip for a UTF-8 code document above 8 KiB; corruption still rejected.
+- Checked an extended packet index of 65,536 and count of 65,537 beyond 4 MiB.
+- Timing estimate uses encoded UTF-8 size, framing overhead, transmission period,
+  and startup countdown. In-flight remaining time adapts to observed symbol timing.
+- Plain-text file input added. Physical recordings of large documents have not
+  been tested; extended-format verification is at the protocol level.
+- The separate local speed lab is not part of this repository or deployment.

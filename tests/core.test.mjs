@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { crc32 as oracleCRC } from 'node:zlib';
-import { encode, crc32, PacketDecoder, SignalDecoder } from '../dist/protocol.js';
+import { encode, crc32, PacketDecoder, SignalDecoder, measureText, duration } from '../dist/protocol.js';
 import { GridDetector } from '../dist/vision.js';
 import { raster } from './fixtures.mjs';
 const text = 'Hello, WORLD! 0123456789:;\n\t  Aaa… café 日本語 🚀\n';
@@ -62,4 +62,28 @@ test('no signal and cropped anchors are rejected', () => {
 test('programming punctuation and indentation survive exactly', () => {
   const code = "function greet(x = [1, 2]) {\n\treturn `hi ${x[0]}`; // a | b & c \\ d\n}\n/* <> : ; ' \" ~ ^ % $ @ # ! ? _ */";
   assert.equal(feed(encode(code).symbols).result, code);
+});
+
+test('documents larger than 8 KiB round-trip with the extended format', () => {
+  const document = 'const items = [1, 2];\n\t// café | {}\n'.repeat(1000);
+  const e = encode(document); assert(e.bytes > 8192); assert.equal(e.symbols[3], 50);
+  assert.equal(feed(e.symbols).result, document);
+  const corrupt = e.symbols.slice(); corrupt[40] ^= 1;
+  assert.equal(feed(corrupt).result, null);
+});
+test('extended chunk indexes do not wrap above 4 MiB', () => {
+  const e = encode('x'.repeat(65536 * 64 + 1));
+  assert.equal(e.packets, 65537);
+  const last = e.symbols.subarray(65536 * 93);
+  const view = new DataView(last.buffer, last.byteOffset, last.byteLength);
+  assert.equal(view.getUint32(16), 65536); assert.equal(view.getUint32(20), 65537);
+  const d = feed(last); assert.deepEqual(d.progress, { received: 1, total: 65537 }); assert.equal(d.result, null);
+});
+
+test('time estimate includes UTF-8 bytes, framing and changes with transmission rate', () => {
+  for (const text of ['ABC', '🚀\n\t', 'x'.repeat(9000)]) {
+    assert.equal(measureText(text).symbols, encode(text).symbols.length);
+    assert.equal(measureText(text, 125).seconds, measureText(text, 250).seconds / 2);
+  }
+  assert.equal(duration(90061), '1 days 1 hr');
 });

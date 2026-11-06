@@ -1,4 +1,4 @@
-import { encode, SYMBOL_MS } from './protocol.js';
+import { encode, SYMBOL_MS, COUNTDOWN_MS, duration, measureText } from './protocol.js?v=2';
 const $ = id => document.getElementById(id);
 let transmitting = false, frame = 0, wakeLock = null, activeDecode = null;
 function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
@@ -12,9 +12,8 @@ $('decode-tab').onclick = () => mode('decode');
 $('about-button').onclick = () => $('about').showModal();
 $('close-about').onclick = () => $('about').close();
 $('about').onclick = event => { if (event.target === $('about')) { const r = $('about').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) $('about').close(); } };
-function duration(seconds) { const n = Math.ceil(seconds); return n < 60 ? `${n} sec` : `${Math.floor(n / 60)} min ${n % 60} sec`; }
 function updateEstimate() {
-  try { const data = encode($('message').value); $('transmit-note').textContent = `${duration(data.seconds)} per pass · repeats`; $('play').disabled = false; }
+  try { const data = measureText($('message').value); $('transmit-note').textContent = `~${duration(data.seconds + COUNTDOWN_MS / 1000)} to transmit`; $('transmit-note').title = `Includes the ${COUNTDOWN_MS / 1000}-second countdown. Each repeating pass takes about ${duration(data.seconds)} at ${1000 / SYMBOL_MS} patterns/s.`; $('play').disabled = false; }
   catch (error) { $('transmit-note').textContent = $('message').value ? error.message : 'Your words stay here.'; $('play').disabled = true; }
 }
 $('message').addEventListener('input', updateEstimate); updateEstimate();
@@ -42,17 +41,17 @@ $('play').onclick = async () => {
   // Fullscreen is optional: fixed-position stage is the fallback on mobile Safari.
   try { const p = $('stage').requestFullscreen?.(); p?.catch(() => {}); } catch {}
   try { navigator.wakeLock?.request('screen').then(lock => { if (transmitting) wakeLock = lock; else lock.release(); }).catch(() => {}); } catch {}
-  let index = 0, clock = 0, pass = 1, started = false, last = performance.now(), countdown = last;
+  let index = 0, clock = 0, pass = 1, started = false, last = performance.now(), countdown = last, observedPeriod = SYMBOL_MS;
   draw(0);
   const tick = now => {
     if (!transmitting) return;
     if (!started) {
-      const left = 3 - Math.floor((now - countdown) / 1000); $('stage-status').textContent = left > 0 ? `Start recording · ${left}` : 'Pass 1 · repeats';
+      const left = Math.ceil((COUNTDOWN_MS - (now - countdown)) / 1000); $('stage-status').textContent = left > 0 ? `Start recording · ${left}` : `Pass 1 · ~${duration(data.seconds)} left`;
       if (left <= 0) { started = true; last = now; draw(data.symbols[0]); }
     } else if (now - last >= SYMBOL_MS) {
-      last = now; index++; clock ^= 1;
+      observedPeriod = observedPeriod * .8 + (now - last) * .2; last = now; index++; clock ^= 1;
       if (index >= data.symbols.length) { index = 0; pass++; }
-      draw(data.symbols[index] | (clock << 8)); $('stage-status').textContent = `Pass ${pass} · ${Math.floor(index / data.symbols.length * 100)}%`;
+      draw(data.symbols[index] | (clock << 8)); $('stage-status').textContent = `Pass ${pass} · ~${duration((data.symbols.length - index) * observedPeriod / 1000)} left`;
     }
     frame = requestAnimationFrame(tick);
   };
@@ -101,11 +100,10 @@ async function decodeFile(file) {
     url = URL.createObjectURL(file);
     const loaded = waitEvent(video, 'loadeddata', signal); video.src = url; video.load(); await loaded;
     if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth) throw new Error('This video has no readable duration. Try a regular camera recording.');
-    if (video.duration > 7200) throw new Error('Choose a recording shorter than two hours.');
     const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./worker.js?v=2', import.meta.url), { type: 'module' });
     await workerCall(worker, { type: 'reset' }, signal);
     let answer = { result: null, found: 0, progress: { received: 0, total: 0 } };
     // Sequential seeks provide backpressure: slow devices take longer without skipping analysis.
@@ -139,3 +137,12 @@ async function decodeFile(file) {
   }
 }
 $('video-file').onchange = () => { const file = $('video-file').files[0]; $('video-file').value = ''; if (file) decodeFile(file); };
+
+$('open-text').onclick = () => $('text-file').click();
+$('text-file').onchange = async () => {
+  const file = $('text-file').files[0]; $('text-file').value = ''; if (!file) return;
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
+    $('message').value = text; updateEstimate(); notice();
+  } catch { notice('Could not read this file as UTF-8 text. Choose a plain-text document or code file.'); }
+};
