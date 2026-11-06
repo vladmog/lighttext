@@ -31,9 +31,9 @@ Requires Python 3 to serve the files; no build or package installation:
 python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 ```
 
-Open http://127.0.0.1:8765. Clipboard and optional fullscreen/wake lock use browser
-capabilities with fallbacks. The fixed fullscreen-like stage works where the
-Fullscreen API is unavailable. Video analysis runs in a worker and reads local
+Open http://127.0.0.1:8765. Clipboard and optional wake lock use browser capabilities with fallbacks.
+Playback fills the current browser viewport without entering fullscreen or
+maximizing the window. Video analysis runs in a worker and reads local
 file object URLs. A Content Security Policy prohibits network connections.
 
 ## Checks
@@ -135,5 +135,5 @@ packet size and optical sequence/reference/parity cells are unchanged. Updated
 decoders accept older recordings; both devices should load the updated app for
 compressed transmissions. Savings depend on document content.
 
-Release version: **1.1.0**. The question-mark dialog displays the installed version.
+Release version: **1.1.1**. The question-mark dialog displays the installed version.
 For each release, update this version, package.json and the dialog together.

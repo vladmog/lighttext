@@ -48,8 +48,6 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && tra
 $('play').onclick = async () => {
   let data; try { data = await preparation($('message').value); } catch (error) { notice(error.message); return; }
   notice(); transmitting = true; $('stage').hidden = false; $('app').inert = true; $('stop').focus();
-  // Fullscreen is optional: fixed-position stage is the fallback on mobile Safari.
-  try { const p = $('stage').requestFullscreen?.(); p?.catch(() => {}); } catch {}
   try { navigator.wakeLock?.request('screen').then(lock => { if (transmitting) wakeLock = lock; else lock.release(); }).catch(() => {}); } catch {}
   let index = 0, step = 0, pass = 1, started = false, last = performance.now(), countdown = last;
   draw(0,0,true);
