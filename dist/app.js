@@ -45,7 +45,7 @@ $('play').onclick = async () => {
   // Fullscreen is optional: fixed-position stage is the fallback on mobile Safari.
   try { const p = $('stage').requestFullscreen?.(); p?.catch(() => {}); } catch {}
   try { navigator.wakeLock?.request('screen').then(lock => { if (transmitting) wakeLock = lock; else lock.release(); }).catch(() => {}); } catch {}
-  let index = 0, step = 0, pass = 1, started = false, last = performance.now(), countdown = last, observedPeriod = SYMBOL_MS;
+  let index = 0, step = 0, pass = 1, started = false, last = performance.now(), countdown = last;
   draw(0,0,true);
   const tick = now => {
     if (!transmitting) return;
@@ -53,9 +53,9 @@ $('play').onclick = async () => {
       const left = Math.ceil((COUNTDOWN_MS - (now - countdown)) / 1000); $('stage-status').textContent = left > 0 ? `Start recording · ${left}` : `Pass 1 · ~${duration(data.seconds)} left`;
       if (left <= 0) { started = true; last = now; draw(data.symbols[0]); }
     } else if (now - last >= SYMBOL_MS) {
-      observedPeriod = observedPeriod * .8 + (now - last) * .2; last = now; index++; step++;
+      last = now; index++; step++;
       if (index >= data.symbols.length) { index = 0; pass++; }
-      draw(data.symbols[index],step); $('stage-status').textContent = `Pass ${pass} · ~${duration((data.symbols.length - index) * observedPeriod / 1000)} left`;
+      draw(data.symbols[index],step); $('stage-status').textContent = `Pass ${pass} · ~${duration((data.symbols.length - index) * SYMBOL_MS / 1000)} left`;
     }
     frame = requestAnimationFrame(tick);
   };
