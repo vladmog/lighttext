@@ -6,3 +6,5 @@
 @media(prefers-reduced-motion:reduce){.spinner{animation:none}}
 
 .text-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:-12px;margin-bottom:6px}.text-heading .eyebrow{margin:0}.text-heading .text-button{min-height:44px;font-size:12px}
+
+.decode-preview{display:block;width:96px;max-height:96px;object-fit:contain;background:#000;border-radius:8px;margin:0 auto 16px}

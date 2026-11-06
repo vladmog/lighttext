@@ -13,8 +13,7 @@ external libraries, uploaded videos, or persistence of user messages.
   including the countdown and framing. Remaining time updates during each pass.
   Open UTF-8 plain-text documents and code files with **Open text file**. Keep the transmitting page in the foreground.
 - **Decode:** choose a recording and wait, then Copy. Tabs, spaces, newlines,
-  programming punctuation (including pipes), and Unicode are supported. Plain
-  ASCII characters take one data symbol; other Unicode characters may use more.
+  programming punctuation (including pipes), and Unicode are supported. Text is encoded as UTF-8 and packed into 14-bit payload steps.
 - Keep the entire grid visible, in focus, and large in the recording. Avoid glare.
   Ordinary video mode is preferred. Browser support for camera video codecs varies;
   a compatible MP4 is the most practical fallback if a file cannot be opened.
@@ -71,12 +70,13 @@ relative paths, so a repository URL works without a domain or server configurati
 
 ## Protocol (LTX1 and LTX2)
 
-A 5×5 lattice has five always-lit orientation markers: four corners and the middle
-of the top edge. Other perimeter positions stay black. The inner 3×3 is read in
-row-major order: eight byte bits, least significant first, then a clock bit in the
-bottom-right cell. The clock flips for every symbol, including equal consecutive
-bytes and loop boundaries. The transmitter holds each symbol for at least 250 ms
-and does not skip symbols when rendering is delayed.
+The standard transmitter uses one square 6×6 data grid at 30 patterns per second,
+with five shared fixed orientation markers. Checkerboard cell groups alternate:
+each group contains 14 payload bits, two sequence bits, an active reference and
+one parity bit. The resting group can fade independently. The decoder reads each
+group separately and validates the reconstructed packets and complete message.
+Payload bits are packed least significant first from the following byte protocol.
+Legacy 3×3 recordings remain readable.
 
 Text is UTF-8, split into 64-byte chunks. Each packet contains:
 
@@ -99,17 +99,17 @@ bytes, chunk length moves to byte 24, and payload starts at byte 25. LTX2 adds
 29 framing/check bytes per chunk. The decoder accepts both versions. The 32-bit
 message-length field permits up to 4,294,967,295 bytes in the format; available
 browser memory imposes a much lower practical limit. Long messages can take hours
-or days at four symbols per second; no two-hour video cap is imposed by the app.
+or days depending on document size and transmission speed; no two-hour video cap is imposed by the app.
 Existing short-message recordings remain compatible. Reopen the updated app on
 both devices for large-document support. Repetition is the recovery mechanism;
 there is no claim of forward error correction within a damaged packet.
 
-The decoder samples the local video at 15 observations per second using sequential
-seeks with backpressure. Slower devices take longer rather than silently dropping
-analysis work. Images are reduced to at most 640 pixels on the longer side. Bright
-components identify marker candidates; a projective transform locates the inner
-grid. Anchor sizes, dark perimeter cells, off-lattice spots and contrast reject
-bad geometry. Stable clock groups vote on data bytes; CRC rejects corrupt packets.
+The decoder reads native video-frame callbacks during slowed local playback with
+worker backpressure, without the former 15-observation-per-second sampling cap.
+Images are reduced to at most 640 pixels on the longer side. Bright marker
+candidates and a projective transform locate the grid. Independent group brightness,
+parity, sequence checks and CRC reject damaged signals. Browser rendering and
+video playback still affect achievable throughput.
 
 ## Verification boundaries
 

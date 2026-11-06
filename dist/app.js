@@ -1,4 +1,5 @@
-import { encode, SYMBOL_MS, COUNTDOWN_MS, duration, measureText } from './protocol.js?v=2';
+import {COUNTDOWN_MS,duration} from './protocol.js?v=3';
+import {encodeSquare as encode,measureSquare as measureText,SYMBOL_MS,bankSlot} from './square.js?v=3';
 const $ = id => document.getElementById(id);
 let transmitting = false, frame = 0, wakeLock = null, activeDecode = null;
 function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
@@ -17,14 +18,17 @@ function updateEstimate() {
   catch (error) { $('transmit-note').textContent = $('message').value ? error.message : 'Your words stay here.'; $('play').disabled = true; }
 }
 $('message').addEventListener('input', updateEstimate); updateEstimate();
-function draw(bits) {
+function draw(word,index=0,blank=false) {
   const canvas = $('lights'), ctx = canvas.getContext('2d');
   const size = Math.min(1600, Math.max(400, Math.round(canvas.getBoundingClientRect().width * (devicePixelRatio || 1))));
   if (canvas.width !== size) canvas.width = canvas.height = size;
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, size, size); ctx.fillStyle = '#fff';
-  const dot = (x, y) => { ctx.beginPath(); ctx.arc(size * (.12 + .19 * x), size * (.12 + .19 * y), size * .034, 0, 2 * Math.PI); ctx.fill(); };
-  for (const [x, y] of [[0, 0], [2, 0], [4, 0], [0, 4], [4, 4]]) dot(x, y);
-  for (let i = 0; i < 9; i++) if (bits & (1 << i)) dot(1 + i % 3, 1 + Math.floor(i / 3));
+  const pitch=size/9;
+  const dot=(x,y)=>{ctx.beginPath();ctx.arc((x+1)*pitch,(y+1)*pitch,pitch*.175,0,2*Math.PI);ctx.fill();};
+  for(const [x,y]of[[0,0],[3.5,0],[7,0],[7,7],[0,7]])dot(x,y);
+  const banks=blank?[0,0]:bankSlot(word,index),counts=[0,0];
+  for(let y=0;y<6;y++)for(let x=0;x<6;x++){const bank=(x+y)%2,i=counts[bank]++;if(banks[bank]&(1<<i))dot(x+1,y+1);}
+
 }
 async function stop() {
   transmitting = false; cancelAnimationFrame(frame); $('stage').hidden = true; $('app').inert = false;
@@ -41,17 +45,17 @@ $('play').onclick = async () => {
   // Fullscreen is optional: fixed-position stage is the fallback on mobile Safari.
   try { const p = $('stage').requestFullscreen?.(); p?.catch(() => {}); } catch {}
   try { navigator.wakeLock?.request('screen').then(lock => { if (transmitting) wakeLock = lock; else lock.release(); }).catch(() => {}); } catch {}
-  let index = 0, clock = 0, pass = 1, started = false, last = performance.now(), countdown = last, observedPeriod = SYMBOL_MS;
-  draw(0);
+  let index = 0, step = 0, pass = 1, started = false, last = performance.now(), countdown = last, observedPeriod = SYMBOL_MS;
+  draw(0,0,true);
   const tick = now => {
     if (!transmitting) return;
     if (!started) {
       const left = Math.ceil((COUNTDOWN_MS - (now - countdown)) / 1000); $('stage-status').textContent = left > 0 ? `Start recording · ${left}` : `Pass 1 · ~${duration(data.seconds)} left`;
       if (left <= 0) { started = true; last = now; draw(data.symbols[0]); }
     } else if (now - last >= SYMBOL_MS) {
-      observedPeriod = observedPeriod * .8 + (now - last) * .2; last = now; index++; clock ^= 1;
+      observedPeriod = observedPeriod * .8 + (now - last) * .2; last = now; index++; step++;
       if (index >= data.symbols.length) { index = 0; pass++; }
-      draw(data.symbols[index] | (clock << 8)); $('stage-status').textContent = `Pass ${pass} · ~${duration((data.symbols.length - index) * observedPeriod / 1000)} left`;
+      draw(data.symbols[index],step); $('stage-status').textContent = `Pass ${pass} · ~${duration((data.symbols.length - index) * observedPeriod / 1000)} left`;
     }
     frame = requestAnimationFrame(tick);
   };
@@ -96,34 +100,44 @@ async function decodeFile(file) {
   let worker, url, video;
   notice(); decodeView('working'); $('decode-status').textContent = 'Opening video…'; $('progress').value = 0;
   try {
-    video = document.createElement('video'); video.muted = true; video.playsInline = true; video.preload = 'auto';
+    video = document.createElement('video');video.className='decode-preview';$('working').prepend(video); video.muted = true; video.playsInline = true; video.preload = 'auto';
     url = URL.createObjectURL(file);
     const loaded = waitEvent(video, 'loadeddata', signal); video.src = url; video.load(); await loaded;
     if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth) throw new Error('This video has no readable duration. Try a regular camera recording.');
     const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    worker = new Worker(new URL('./worker.js?v=2', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./worker.js?v=3', import.meta.url), { type: 'module' });
     await workerCall(worker, { type: 'reset' }, signal);
     let answer = { result: null, found: 0, progress: { received: 0, total: 0 } };
-    // Sequential seeks provide backpressure: slow devices take longer without skipping analysis.
-    // 15 observations/sec gives 3–4 samples per 250 ms symbol, independent of recorded fps.
-    const total = Math.ceil(video.duration * 15);
-    for (let i = 0; i < total; i++) {
-      if (signal.aborted) throw abortError();
-      const time = Math.min(i / 15 + .002, Math.max(0, video.duration - .001));
-      if (Math.abs(video.currentTime - time) > .001) {
-        const sought = waitEvent(video, 'seeked', signal); video.currentTime = time; await sought;
-      }
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data.buffer;
-      answer = await workerCall(worker, { type: 'frame', pixels, width: canvas.width, height: canvas.height, time }, signal, [pixels]);
-      $('progress').value = (i + 1) / total;
-      const p = answer.progress;
-      $('decode-status').textContent = p.received ? `Recovered ${p.received} of ${p.total} parts · ${Math.round((i + 1) / total * 100)}%` : `${answer.found ? 'Reading' : 'Looking for the grid'} · ${Math.round((i + 1) / total * 100)}%`;
-      if (answer.result !== null) break;
-    }
-    if (answer.result === null) answer = await workerCall(worker, { type: 'finish' }, signal);
+    if(!video.requestVideoFrameCallback)throw new Error('Use a current browser with video-frame support to decode this recording.');
+    let callback=0;
+    answer=await new Promise((resolve,reject)=>{
+      let pending=0,ended=false,finishing=false,settled=false,lastTimestamp=-Infinity,lastActivity=performance.now(),pausedForWork=false;
+      const cleanup=()=>{clearInterval(watchdog);signal.removeEventListener('abort',cancel);video.cancelVideoFrameCallback(callback);video.pause();video.onended=null;video.onerror=null;worker.onmessage=null;worker.onerror=null;};
+      const done=(error,value)=>{if(settled)return;settled=true;cleanup();error?reject(error):resolve(value);};
+      const cancel=()=>done(abortError());signal.addEventListener('abort',cancel,{once:true});
+      const watchdog=setInterval(()=>{if(performance.now()-lastActivity>30000)done(new Error('Analysis stalled. Keep this page visible and try again.'));},1000);
+      const finish=()=>{if(ended&&pending===0&&!finishing){finishing=true;worker.postMessage({type:'finish'});}};
+      const pump=(_now,meta)=>{
+        if(settled||signal.aborted)return;lastActivity=performance.now();
+        if(meta.mediaTime>lastTimestamp){lastTimestamp=meta.mediaTime;ctx.drawImage(video,0,0,canvas.width,canvas.height);const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data.buffer;pending++;worker.postMessage({type:'frame',pixels,width:canvas.width,height:canvas.height,time:meta.mediaTime},[pixels]);}
+        callback=video.requestVideoFrameCallback(pump);
+        if(pending>=8&&!video.paused){pausedForWork=true;video.pause();}
+      };
+      worker.onmessage=({data})=>{
+        if(settled)return;lastActivity=performance.now();
+        if(data.error){done(new Error(data.error));return;}
+        if(data.type==='finish'||data.result!==null){done(null,data);return;}
+        pending--;answer=data;const fraction=Math.min(1,lastTimestamp/video.duration);$('progress').value=fraction;
+        const p=data.progress;$('decode-status').textContent=p.received?`Recovered ${p.received} of ${p.total} parts · ${Math.round(fraction*100)}%`:`${data.found?'Reading':'Looking for the grid'} · ${Math.round(fraction*100)}%`;
+        if(pausedForWork&&pending<=2&&!ended){pausedForWork=false;video.play().catch(error=>done(error));}finish();
+      };
+      worker.onerror=()=>done(new Error('Video processing failed. Reload and try again.'));
+      video.onended=()=>{ended=true;finish();};video.onerror=()=>done(new Error('Video playback failed. Try a compatible camera format.'));
+      video.playbackRate=.5;callback=video.requestVideoFrameCallback(pump);video.play().catch(error=>done(error));
+      if(signal.aborted)cancel();
+    });
     if (answer.result !== null) { $('result').value = answer.result; decodeView('result-area'); $('copy').focus(); }
     else {
       decodeView('upload-area'); const p = answer.progress;
@@ -132,7 +146,7 @@ async function decodeFile(file) {
   } catch (error) {
     if (activeDecode === control) { decodeView('upload-area'); if (error.name !== 'AbortError') notice(error.message); }
   } finally {
-    worker?.terminate(); if (video) { video.pause(); video.removeAttribute('src'); video.load(); } if (url) URL.revokeObjectURL(url);
+    worker?.terminate(); if (video) { video.pause(); video.removeAttribute('src'); video.load();video.remove(); } if (url) URL.revokeObjectURL(url);
     if (activeDecode === control) activeDecode = null;
   }
 }

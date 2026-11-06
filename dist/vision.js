@@ -73,7 +73,11 @@ function readGrid(gray, w, height, q, marker, spots) {
   // blob inside the candidate must belong to a permitted lattice position.
   const [a,b,c,d,e,f,g,k] = h;
   const inv = [e-f*k,c*k-b,b*f-c*e,f*g-d,a-c*g,c*d-a*f,d*k-e*g,b*g-a*k,a*e-b*d];
+  const smallestAnchorArea = Math.min(...q.map(p => p.area));
   for (const spot of spots) {
+    // A mouse pointer or tiny reflection is not a candidate light. Keep
+    // rejecting extra objects comparable in area to the fixed markers.
+    if (spot.area < smallestAnchorArea * .35) continue;
     const z = inv[6]*spot.x + inv[7]*spot.y + inv[8];
     const x = 4*(inv[0]*spot.x + inv[1]*spot.y + inv[2])/z;
     const y = 4*(inv[3]*spot.x + inv[4]*spot.y + inv[5])/z;

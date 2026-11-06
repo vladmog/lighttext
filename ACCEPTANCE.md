@@ -1,9 +1,9 @@
 # Lighttext acceptance gates
 
 Agreed scope: static GitHub Pages app, desktop and mobile, two modes, no account,
-database, telemetry, uploads, or persistence of user content. A 5×5 lattice has
-four permanent white corner dots plus the permanent top-center direction dot.
-Only the inner 3×3 changes. Text, including whitespace, must survive exactly.
+database, telemetry, uploads, or persistence of user content. A square 6×6 data grid uses alternating checkerboard groups at 30 patterns/s,
+with four permanent corner dots and a permanent top-center direction dot.
+Documents larger than 8 KiB must be accepted. Text, including whitespace, must survive exactly.
 
 Before implementation the workspace contained no app, so all gates were unmet.
 

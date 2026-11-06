@@ -51,3 +51,15 @@ Local QA artifacts are ignored under `qa/`; they contain synthetic text only.
 - Plain-text file input added. Physical recordings of large documents have not
   been tested; extended-format verification is at the protocol level.
 - The separate local speed lab is not part of this repository or deployment.
+
+## Square standard update
+
+The main transmitter now uses the 6×6 alternating grid at a nominal 30 patterns/s.
+All 19 protocol and image tests pass, including documents above 8 KiB and extended
+chunk indices above 4 MiB. The browser test recorded the actual square transmitter,
+decoded exact Unicode/whitespace, checked cancellation and clipboard, and decoded
+an older 3×3 video. Desktop, portrait and landscape screenshots were inspected.
+A roughly 30 KB text document loaded through the file picker with an estimate.
+These browser recordings are synthetic; the user separately reported the local
+square speed test worked at 30 patterns/s on their setup. This is not a claim of
+universal phone performance.
