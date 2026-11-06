@@ -1,5 +1,5 @@
-import {COUNTDOWN_MS,duration} from './protocol.js?v=5';
-import {prepareSquare,SYMBOL_MS,bankSlot} from './square.js?v=5';
+import {COUNTDOWN_MS,duration} from './protocol.js?v=7';
+import {prepareSquare,SYMBOL_MS,bankSlot} from './square.js?v=7';
 const $ = id => document.getElementById(id);
 let transmitting = false, frame = 0, wakeLock = null, activeDecode = null;
 function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
@@ -20,7 +20,7 @@ async function updateEstimate() {
  $('play').disabled=true;$('transmit-note').textContent=text?'Calculating…':'Your words stay here.';
  try { const data=await preparation(text);if(version!==estimateVersion)return;
  $('transmit-note').textContent=`~${duration(data.seconds+COUNTDOWN_MS/1000)} to transmit`;
- $('transmit-note').title=`Includes the ${COUNTDOWN_MS/1000}-second countdown. Each pass takes about ${duration(data.seconds)} at 30 patterns/s${data.compressed?' with lossless compression':''}.`;$('play').disabled=false;
+ $('transmit-note').title=`Includes the ${COUNTDOWN_MS/1000}-second countdown. Transmission including recovery data takes about ${duration(data.seconds)} at 30 patterns/s${data.compressed?' with lossless compression':''}.`;$('play').disabled=false;
  }catch(error){if(version===estimateVersion)$('transmit-note').textContent=text?error.message:'Your words stay here.';}
 }
 $('message').addEventListener('input', updateEstimate); updateEstimate();
@@ -43,23 +43,26 @@ async function stop() {
   $('play').focus();
 }
 $('stop').onclick = stop;
-document.addEventListener('keydown', event => { if (event.key === 'Escape' && transmitting) stop(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('stage').hidden) stop(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && transmitting) { stop(); notice('Transmission stopped when the app went into the background. Press Play to restart.'); } });
 $('play').onclick = async () => {
   let data; try { data = await preparation($('message').value); } catch (error) { notice(error.message); return; }
-  notice(); transmitting = true; $('stage').hidden = false; $('app').inert = true; $('stop').focus();
+  notice(); $('completion').hidden=true; $('stop').textContent='Stop ×'; transmitting = true; $('stage').hidden = false; $('app').inert = true; $('stop').focus();
   try { navigator.wakeLock?.request('screen').then(lock => { if (transmitting) wakeLock = lock; else lock.release(); }).catch(() => {}); } catch {}
-  let index = 0, step = 0, pass = 1, started = false, last = performance.now(), countdown = last;
+  let index = 0, step = 0, started = false, last = performance.now(), countdown = last;
   draw(0,0,true);
   const tick = now => {
     if (!transmitting) return;
     if (!started) {
-      const left = Math.ceil((COUNTDOWN_MS - (now - countdown)) / 1000); $('stage-status').textContent = left > 0 ? `Start recording · ${left}` : `Pass 1 · ~${duration(data.seconds)} left`;
+      const left = Math.ceil((COUNTDOWN_MS - (now - countdown)) / 1000); $('stage-status').textContent = left > 0 ? `Start recording · ${left}` : `Transmitting · ~${duration(data.seconds)} left`;
       if (left <= 0) { started = true; last = now; draw(data.symbols[0]); }
     } else if (now - last >= SYMBOL_MS) {
       last = now; index++; step++;
-      if (index >= data.symbols.length) { index = 0; pass++; }
-      draw(data.symbols[index],step); $('stage-status').textContent = `Pass ${pass} · ~${duration((data.symbols.length - index) * SYMBOL_MS / 1000)} left`;
+      if (index >= data.symbols.length) {
+        transmitting=false;draw(0,0,true);$('completion').hidden=false;$('stage-status').textContent='Transmission complete · You can stop recording';$('stop').textContent='Done';
+        wakeLock?.release().catch(()=>{});wakeLock=null;return;
+      }
+      draw(data.symbols[index],step); $('stage-status').textContent = `Transmitting · ~${duration((data.symbols.length - index) * SYMBOL_MS / 1000)} left`;
     }
     frame = requestAnimationFrame(tick);
   };
@@ -111,7 +114,7 @@ async function decodeFile(file) {
     const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    worker = new Worker(new URL('./worker.js?v=5', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./worker.js?v=7', import.meta.url), { type: 'module' });
     await workerCall(worker, { type: 'reset' }, signal);
     let answer = { result: null, found: 0, progress: { received: 0, total: 0 } };
     if(!video.requestVideoFrameCallback)throw new Error('Use a current browser with video-frame support to decode this recording.');
@@ -145,7 +148,7 @@ async function decodeFile(file) {
     if (answer.result !== null) { $('result').value = answer.result; decodeView('result-area'); $('copy').focus(); }
     else {
       decodeView('upload-area'); const p = answer.progress;
-      notice(p.received ? `Recovered ${p.received} of ${p.total} parts. Record a longer clip covering two full passes with every fixed dot visible.` : answer.found ? 'Grid found, but no complete message passed its checks. Record two full passes; keep the dots sharp and all five fixed lights visible.' : 'No readable grid found. Keep all five fixed lights in view, fill more of the recording with the grid, and avoid glare.');
+      notice(p.received ? `Recovered ${p.received} of ${p.total} parts. Record the full transmission through the completion message with every fixed dot visible.` : answer.found ? 'Grid found, but no complete message passed its checks. Record from the countdown through completion; keep the dots sharp and all five fixed lights visible.' : 'No readable grid found. Keep all five fixed lights in view, fill more of the recording with the grid, and avoid glare.');
     }
   } catch (error) {
     if (activeDecode === control) { decodeView('upload-area'); if (error.name !== 'AbortError') notice(error.message); }

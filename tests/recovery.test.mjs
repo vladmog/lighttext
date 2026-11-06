@@ -1,0 +1,11 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {encodeBytes,PacketDecoder,crc32} from '../dist/protocol.js';
+import {pack14,SquareDecoder,bankSlot} from '../dist/square.js';
+const encoder=new TextEncoder();
+function packets(bytes){const stream=encodeBytes(bytes,false,true).symbols,out=[];for(let i=0;i<stream.length;){const size=29+stream[i+24];out.push(stream.slice(i,i+size));i+=size;}return out;}
+function decode(parts){const d=new PacketDecoder();for(const p of parts)for(const byte of p)d.push(byte);return d.result;}
+test('32 data packets plus one parity recover every possible single lost packet',()=>{const text='0123456789abcdef'.repeat(128),parts=packets(encoder.encode(text));assert.equal(parts.length,33);for(let drop=0;drop<33;drop++)assert.equal(decode(parts.filter((_,i)=>i!==drop)),text);});
+test('partial groups, short documents and one loss in each group recover exactly',()=>{for(const text of ['Hi','π🚀\n\t'.repeat(1000),'a'.repeat(2051)]){const parts=packets(encoder.encode(text));assert.equal(decode(parts.filter((_,i)=>i!==0&&i!==32)),text);}});
+test('two losses in one group and damaged recovery cannot produce accepted text',()=>{const text='a'.repeat(2048),parts=packets(encoder.encode(text));assert.equal(decode(parts.slice(2)),null);const bad=parts.at(-1).slice();bad[30]^=1;assert.equal(decode([...parts.slice(1,-1),bad]),null);});
+test('whole-message checksum rejects wrong parity even with valid packet checksum',()=>{const parts=packets(encoder.encode('a'.repeat(2048))),bad=parts.at(-1).slice();bad[25]^=1;new DataView(bad.buffer).setUint32(bad.length-4,crc32(bad.subarray(8,-4)));assert.equal(decode([...parts.slice(1,-1),bad]),null);});
+test('one optical stream with missing observations recovers without a second pass',()=>{const text='Code ()[]{} |\n\t'.repeat(80),encoded=encodeBytes(encoder.encode(text),false,true),bytes=new Uint8Array(encoded.symbols.length+4);bytes.set(encoded.symbols);bytes.set([85,170,85,170],encoded.symbols.length);const words=pack14(bytes),d=new SquareDecoder();words.forEach((word,i)=>{if(i>=20&&i<24)return;d.add(bankSlot(word,i).map(bits=>({bits,strength:1})),i/30);});assert.equal(d.finish(),text);});

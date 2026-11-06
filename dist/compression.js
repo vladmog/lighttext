@@ -1,4 +1,4 @@
-import {crc32} from './protocol.js?v=5';
+import {crc32} from './protocol.js?v=7';
 export async function restoreText(value) {
  if(value===null||typeof value==='string')return value;
  if(value.length<8)throw new Error('Invalid compressed document.');

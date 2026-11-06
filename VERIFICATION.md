@@ -73,3 +73,14 @@ Unicode/whitespace message exactly; legacy video, cancellation, Copy, document
 input and desktop/mobile layouts also passed. A 13,062-byte application source
 sample fell from 362.1 to 127.4 seconds per pass (65% shorter); this is a measured
 sample, not a guaranteed saving for other documents.
+
+## Single transmission and recovery (1.2.0)
+
+All 27 tests pass. Recovery tests omit each of 33 packets in a 32-data-plus-parity
+message, exercise partial groups, one loss in each group, reject two losses in
+one group and corrupt parity, and check the final CRC even with a recomputed
+packet CRC. A single optical symbol stream with missing observations reconstructs
+exactly. The browser records one compressed transmission through completion,
+checks that the canvas stays stopped, and decodes exact text. Legacy recording,
+Copy, cancellation and large-document input also pass. This is synthetic evidence;
+physical phone recordings of the new recovery format remain to be checked.

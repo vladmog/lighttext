@@ -1,8 +1,8 @@
-import {restoreText} from './compression.js?v=5';
-import {DualGridDetector} from './square-vision.js?v=5';
-import {SquareDecoder} from './square.js?v=5';
-import {GridDetector} from './vision.js?v=5';
-import {SignalDecoder} from './protocol.js?v=5';
+import {restoreText} from './compression.js?v=7';
+import {DualGridDetector} from './square-vision.js?v=7';
+import {SquareDecoder} from './square.js?v=7';
+import {GridDetector} from './vision.js?v=7';
+import {SignalDecoder} from './protocol.js?v=7';
 let detector,square,legacy,normal,mirrored,found,lastTime;
 function reset(){detector=new DualGridDetector();square=new SquareDecoder();legacy=new GridDetector();normal=new SignalDecoder();mirrored=new SignalDecoder();found=0;lastTime=-Infinity;}
 function mirror(bits){let value=0;for(let i=0;i<9;i++)if(bits&(1<<i))value|=1<<(Math.floor(i/3)*3+2-i%3);return value;}

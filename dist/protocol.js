@@ -26,26 +26,29 @@ export function measureText(text, symbolMs = SYMBOL_MS) {
   return { bytes, packets, symbols, seconds: symbols * symbolMs / 1000 };
 }
 export function encode(text) { return encodeBytes(enc.encode(text)); }
-export function encodeBytes(bytes, compressed = false) {
+export function encodeBytes(bytes, compressed = false, recovery = false) {
   if (!bytes.length) throw new Error('Enter a message first.');
   if (bytes.length > MAX_BYTES) throw new Error('This document exceeds the wire format capacity. Split it into smaller documents.');
   // Keep existing short-message recordings compatible; LTX2 widens chunk indexes
   // and counts to 32 bits so large documents do not wrap at 65,535 chunks.
-  const extended = compressed || bytes.length > 8192, header = extended ? 25 : 21;
+  const extended = recovery || compressed || bytes.length > 8192, header = extended ? 25 : 21;
   const id = crc32(bytes), count = Math.ceil(bytes.length / CHUNK_SIZE);
-  const symbols = new Uint8Array(bytes.length + count * (header + 4));
+  const recoveryCount = recovery ? Math.ceil(count / 32) : 0;
+  const symbols = new Uint8Array(bytes.length + count * (header + 4) + recoveryCount * (header + 4 + CHUNK_SIZE));
   let offset = 0;
-  for (let index = 0; index < count; index++) {
-    const chunk = bytes.subarray(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE);
+  for (let index = 0; index < count + recoveryCount; index++) {
+    let chunk;
+    if(index < count)chunk = bytes.subarray(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE);
+    else {chunk=new Uint8Array(CHUNK_SIZE);const start=(index-count)*32;for(let i=start;i<Math.min(count,start+32);i++)for(let j=0;j<CHUNK_SIZE&&i*CHUNK_SIZE+j<bytes.length;j++)chunk[j]^=bytes[i*CHUNK_SIZE+j];}
     const p = symbols.subarray(offset, offset + header + 4 + chunk.length);
-    p.set(MAGIC); if (extended) p[3] = compressed ? 51 : 50;
+    p.set(MAGIC); if (extended) p[3] = recovery ? (compressed ? 53 : 52) : (compressed ? 51 : 50);
     put32(p, 8, id); put32(p, 12, bytes.length);
     if (extended) { put32(p, 16, index); put32(p, 20, count); p[24] = chunk.length; }
     else { p[16] = index >>> 8; p[17] = index & 255; p[18] = count >>> 8; p[19] = count & 255; p[20] = chunk.length; }
     p.set(chunk, header); put32(p, header + chunk.length, crc32(p.subarray(8, header + chunk.length)));
     offset += p.length;
   }
-  return { symbols, bytes: bytes.length, packets: count, seconds: symbols.length * SYMBOL_MS / 1000 };
+  return { symbols, bytes: bytes.length, packets: count, recoveryPackets: recoveryCount, seconds: symbols.length * SYMBOL_MS / 1000 };
 }
 export function duration(seconds) {
   const n = Math.max(0, Math.ceil(seconds));
@@ -59,15 +62,16 @@ export class PacketDecoder {
   push(byte) {
     this.buffer.push(byte);
     while (this.buffer.length >= 8) {
-      if (!MAGIC.every((b, i) => i === 3 ? [49, 50, 51].includes(this.buffer[i]) : this.buffer[i] === b)) { this.buffer.shift(); continue; }
-      const compressed = this.buffer[3] === 51, extended = this.buffer[3] !== 49, header = extended ? 25 : 21;
+      if (!MAGIC.every((b, i) => i === 3 ? [49, 50, 51, 52, 53].includes(this.buffer[i]) : this.buffer[i] === b)) { this.buffer.shift(); continue; }
+      const compressed = [51,53].includes(this.buffer[3]), recovery = this.buffer[3] >= 52, extended = this.buffer[3] !== 49, header = extended ? 25 : 21;
       if (this.buffer.length < header) return;
       const h = Uint8Array.from(this.buffer.slice(0, header));
       const id = get32(h, 8), length = get32(h, 12);
       const index = extended ? get32(h, 16) : h[16] * 256 + h[17];
       const count = extended ? get32(h, 20) : h[18] * 256 + h[19], size = h[header - 1];
-      if (!length || length > MAX_BYTES || count !== Math.ceil(length / CHUNK_SIZE) || index >= count ||
-          size !== Math.min(CHUNK_SIZE, length - index * CHUNK_SIZE)) { this.buffer.shift(); continue; }
+      const repair = index >= count;
+      if (!length || length > MAX_BYTES || count !== Math.ceil(length / CHUNK_SIZE) || index >= count + (recovery ? Math.ceil(count / 32) : 0) ||
+          size !== (repair ? CHUNK_SIZE : Math.min(CHUNK_SIZE, length - index * CHUNK_SIZE))) { this.buffer.shift(); continue; }
       if (this.buffer.length < size + header + 4) return;
       const p = Uint8Array.from(this.buffer.slice(0, size + header + 4));
       if (crc32(p.subarray(8, header + size)) !== get32(p, header + size)) {
@@ -78,9 +82,18 @@ export class PacketDecoder {
       if (!this.messages.has(key)) {
         // Bound memory even for a video containing many unrelated transmissions.
         if (this.messages.size >= 16) this.messages.delete(this.messages.keys().next().value);
-        this.messages.set(key, { id, length, count, chunks: new Map() });
+        this.messages.set(key, { id, length, count, chunks: new Map(), repairs: new Map() });
       }
-      const m = this.messages.get(key); m.chunks.set(index, p.slice(header, header + size));
+      const m = this.messages.get(key);
+      if(repair)m.repairs.set(index-count,p.slice(header,header+size));else m.chunks.set(index,p.slice(header,header+size));
+      // Each XOR recovery part reconstructs one missing data part in its group.
+      const group=repair?index-count:Math.floor(index/32), parity=m.repairs.get(group);
+      if(parity){const start=group*32,end=Math.min(count,start+32);let missing=-1,losses=0;
+        for(let i=start;i<end;i++)if(!m.chunks.has(i)){missing=i;losses++;}
+        if(losses===1){const recovered=parity.slice();for(let i=start;i<end;i++){const part=m.chunks.get(i);if(part)for(let j=0;j<part.length;j++)recovered[j]^=part[j];}
+          m.chunks.set(missing,recovered.slice(0,Math.min(CHUNK_SIZE,length-missing*CHUNK_SIZE)));
+        }
+      }
       if (m.chunks.size === count) {
         const all = new Uint8Array(length);
         for (const [i, c] of m.chunks) all.set(c, i * CHUNK_SIZE);

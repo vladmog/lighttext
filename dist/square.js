@@ -1,4 +1,4 @@
-import {encode,encodeBytes,measureText,PacketDecoder,crc32} from './protocol.js?v=5';
+import {encode,encodeBytes,measureText,PacketDecoder,crc32} from './protocol.js?v=7';
 export const PATTERNS_PER_SECOND=30;
 export const SYMBOL_MS=1000/PATTERNS_PER_SECOND;
 export function pack14(bytes){const out=new Uint16Array(Math.ceil(bytes.length*8/14));let word=0,count=0,index=0;for(const byte of bytes)for(let bit=0;bit<8;bit++){word|=((byte>>>bit)&1)<<count;if(++count===14){out[index++]=word;word=0;count=0;}}if(count)out[index]=word;return out;}
@@ -6,15 +6,15 @@ export function measureSquare(text){const p=measureText(text),symbols=Math.ceil(
 export function encodeSquare(text){const p=encode(text),bytes=new Uint8Array(p.symbols.length+2);bytes.set(p.symbols);bytes.set([85,170],p.symbols.length);const symbols=pack14(bytes);return{symbols,bytes:p.bytes,packets:p.packets,seconds:symbols.length/PATTERNS_PER_SECOND};}
 // Compression changes the byte envelope, never the optical cells or packet checks.
 export async function prepareSquare(text) {
- const plain=encodeSquare(text);
- if(typeof CompressionStream==='undefined')return plain;
  const raw=new TextEncoder().encode(text);
+ const wrap=(packet,compressed=false)=>{const bytes=new Uint8Array(packet.symbols.length+2);bytes.set(packet.symbols);bytes.set([85,170],packet.symbols.length);const symbols=pack14(bytes);return {symbols,bytes:raw.length,packets:packet.packets,recoveryPackets:packet.recoveryPackets,seconds:symbols.length/PATTERNS_PER_SECOND,compressed};};
+ const plain=wrap(encodeBytes(raw,false,true));
+ if(typeof CompressionStream==='undefined')return plain;
  const zipped=new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
  const envelope=new Uint8Array(8+zipped.length),view=new DataView(envelope.buffer);
  view.setUint32(0,raw.length);view.setUint32(4,crc32(raw));envelope.set(zipped,8);
- const packet=encodeBytes(envelope,true),bytes=new Uint8Array(packet.symbols.length+2);bytes.set(packet.symbols);bytes.set([85,170],packet.symbols.length);
- const symbols=pack14(bytes);
- return symbols.length<plain.symbols.length?{symbols,bytes:raw.length,packets:packet.packets,seconds:symbols.length/PATTERNS_PER_SECOND,compressed:true}:plain;
+ const packed=wrap(encodeBytes(envelope,true,true),true);
+ return packed.symbols.length<plain.symbols.length?packed:plain;
 }
 function parity(value){let out=0;for(;value;value>>>=1)out^=value&1;return out;}
 export function bankSlot(word,index){const banks=[0,0],data=(word&16383)|((Math.floor(index/2)%4)<<14);banks[index%2]=data|65536|(parity(data)<<17);return banks;}

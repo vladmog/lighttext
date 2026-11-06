@@ -8,9 +8,9 @@ external libraries, uploaded videos, or persistence of user messages.
 ## Use
 
 - **Transmit:** enter text, press Play, and record all five fixed markers. After a
-  three-second countdown, the message repeats until stopped. Record two full
-  passes to give packet recovery another opportunity. The estimated time to the first complete transmission is shown before playback,
-  including the countdown and framing. Remaining time updates during each pass.
+  three-second countdown, the message and recovery parts play once. Record until
+  **Transmission complete**, then stop recording. The estimated time to the first complete transmission is shown before playback,
+  including the countdown and framing. Remaining time includes recovery parts and updates during transmission.
   Open UTF-8 plain-text documents and code files with **Open text file**. Keep the transmitting page in the foreground.
 - **Decode:** choose a recording and wait, then Copy. Tabs, spaces, newlines,
   programming punctuation (including pipes), and Unicode are supported. Text is encoded as UTF-8 and packed into 14-bit payload steps.
@@ -101,8 +101,7 @@ message-length field permits up to 4,294,967,295 bytes in the format; available
 browser memory imposes a much lower practical limit. Long messages can take hours
 or days depending on document size and transmission speed; no two-hour video cap is imposed by the app.
 Existing short-message recordings remain compatible. Reopen the updated app on
-both devices for large-document support. Repetition is the recovery mechanism;
-there is no claim of forward error correction within a damaged packet.
+both devices for large-document support. Legacy recordings can recover validated packets across repeated passes. New transmissions use the recovery format below.
 
 The decoder reads native video-frame callbacks during slowed local playback with
 worker backpressure, without the former 15-observation-per-second sampling cap.
@@ -135,5 +134,20 @@ packet size and optical sequence/reference/parity cells are unchanged. Updated
 decoders accept older recordings; both devices should load the updated app for
 compressed transmissions. Savings depend on document content.
 
-Release version: **1.1.1**. The question-mark dialog displays the installed version.
+Release version: **1.2.0**. The question-mark dialog displays the installed version.
 For each release, update this version, package.json and the dialog together.
+
+## Single transmission with recovery (1.2.0)
+
+The standard transmitter uses LTX4 (plain UTF-8) or LTX5 (the compressed envelope),
+with the same 25-byte header and CRC layout as LTX2/LTX3. Magic version bytes are
+`34` and `35` hex. Data packets retain their existing indices and count. After all
+data packets, one 64-byte XOR recovery packet is sent for each group of up to 32
+data packets; its index is data-count plus group-number. Short final chunks are
+zero-padded for XOR, then trimmed to the declared message length on recovery.
+One missing or CRC-rejected data packet per group can be reconstructed if its
+recovery packet arrives. Two missing data packets in the same group cannot.
+The complete-message checksum still must pass. Clean data can finish decoding
+before recovery arrives. No automatic repeat is transmitted. Recovery overhead is
+about 3% for full groups, proportionally larger for short messages; the estimate
+includes the exact additional patterns. Both devices need the updated decoder.
