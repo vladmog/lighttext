@@ -1,5 +1,5 @@
-import {COUNTDOWN_MS,duration} from './protocol.js?v=7';
-import {prepareSquare,SYMBOL_MS,bankSlot} from './square.js?v=7';
+import {COUNTDOWN_MS,duration} from './protocol.js?v=8';
+import {prepareSquare,SYMBOL_MS,bankSlot} from './square.js?v=8';
 const $ = id => document.getElementById(id);
 let transmitting = false, frame = 0, wakeLock = null, activeDecode = null;
 function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
@@ -114,7 +114,7 @@ async function decodeFile(file) {
     const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    worker = new Worker(new URL('./worker.js?v=7', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./worker.js?v=8', import.meta.url), { type: 'module' });
     await workerCall(worker, { type: 'reset' }, signal);
     let answer = { result: null, found: 0, progress: { received: 0, total: 0 } };
     if(!video.requestVideoFrameCallback)throw new Error('Use a current browser with video-frame support to decode this recording.');

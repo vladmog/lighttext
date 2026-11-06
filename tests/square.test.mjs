@@ -17,3 +17,15 @@ test('square detector reads independent rotated and fading checkerboard fixtures
   assert.deepEqual(new DualGridDetector().detect(f.data,f.width,f.height)?.map(b=>b?.bits),[a,b]);
  }
 });
+
+test('isolated parity-valid sequence outlier cannot break a buffered continuous stream',()=>{
+ const text='Mixed exposure sequence regression ()[]{}\n\t',data=encodeSquare(text),d=new SquareDecoder();
+ for(let i=0;i<data.symbols.length;i++){
+  const banks=bankSlot(data.symbols[i],i).map(bits=>({bits,strength:1}));
+  // The fading bank falsely reads sequence 6 while the active bank reads 3;
+  // the next observed event is the expected sequence 4, as in a mixed exposure.
+  if(i===19)banks[0]={bits:bankSlot(data.symbols[i+1],i+3)[0],strength:.7};
+  d.add(banks,i/30);
+ }
+ assert.equal(d.finish(),text);
+});

@@ -1,4 +1,4 @@
-import {encode,encodeBytes,measureText,PacketDecoder,crc32} from './protocol.js?v=7';
+import {encode,encodeBytes,measureText,PacketDecoder,crc32} from './protocol.js?v=8';
 export const PATTERNS_PER_SECOND=30;
 export const SYMBOL_MS=1000/PATTERNS_PER_SECOND;
 export function pack14(bytes){const out=new Uint16Array(Math.ceil(bytes.length*8/14));let word=0,count=0,index=0;for(const byte of bytes)for(let bit=0;bit<8;bit++){word|=((byte>>>bit)&1)<<count;if(++count===14){out[index++]=word;word=0;count=0;}}if(count)out[index]=word;return out;}
@@ -23,6 +23,10 @@ class Receiver{
  constructor(mirrored){this.mirrored=mirrored;this.runs=[null,null];this.queue=[];this.previous=null;const messages=new Map();this.parsers=Array.from({length:8},(_,shift)=>{const decoder=new PacketDecoder();decoder.messages=messages;return{decoder,shift,skip:shift,byte:0,count:0};});}
  breakStream(){for(const p of this.parsers){p.skip=p.shift;p.byte=0;p.count=0;p.decoder.buffer=[];}}
  commit(event){
+  // A mixed exposure can create a parity-valid but out-of-order sequence label.
+  // Discard only an isolated outlier when the already-observed next event
+  // resumes exactly where the stream should continue. CRC remains mandatory.
+  if(this.previous!==null&&event.token!==((this.previous+1)%8)&&this.queue[0]?.token===((this.previous+1)%8))return;
   if(this.previous!==null&&event.token!==((this.previous+1)%8))this.breakStream();this.previous=event.token;
   const votes=[...event.votes].sort((a,b)=>b[1]-a[1]);if(!votes.length||(votes[1]&&votes[0][1]<=votes[1][1]*1.05)){this.breakStream();return;}
   const word=votes[0][0];for(const p of this.parsers)for(let bit=0;bit<14;bit++){if(p.skip){p.skip--;continue;}p.byte|=((word>>>bit)&1)<<p.count;if(++p.count===8){p.decoder.push(p.byte);p.byte=0;p.count=0;}}

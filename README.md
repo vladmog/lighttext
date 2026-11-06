@@ -134,7 +134,7 @@ packet size and optical sequence/reference/parity cells are unchanged. Updated
 decoders accept older recordings; both devices should load the updated app for
 compressed transmissions. Savings depend on document content.
 
-Release version: **1.2.0**. The question-mark dialog displays the installed version.
+Release version: **1.2.1**. The question-mark dialog displays the installed version.
 For each release, update this version, package.json and the dialog together.
 
 ## Single transmission with recovery (1.2.0)
