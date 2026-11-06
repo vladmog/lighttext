@@ -134,3 +134,6 @@ text is shown. Expansion stops if it exceeds the declared length. The 64-byte
 packet size and optical sequence/reference/parity cells are unchanged. Updated
 decoders accept older recordings; both devices should load the updated app for
 compressed transmissions. Savings depend on document content.
+
+Release version: **1.1.0**. The question-mark dialog displays the installed version.
+For each release, update this version, package.json and the dialog together.
