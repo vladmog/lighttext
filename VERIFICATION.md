@@ -63,3 +63,13 @@ A roughly 30 KB text document loaded through the file picker with an estimate.
 These browser recordings are synthetic; the user separately reported the local
 square speed test worked at 30 patterns/s on their setup. This is not a claim of
 universal phone performance.
+
+## Lossless compression update
+
+All 22 tests pass, including an independent Node gzip oracle, compressed optical
+stream recovery, original-document CRC/length checks, malformed gzip rejection,
+and the unchanged legacy tests. The browser recorded and decoded a compressed
+Unicode/whitespace message exactly; legacy video, cancellation, Copy, document
+input and desktop/mobile layouts also passed. A 13,062-byte application source
+sample fell from 362.1 to 127.4 seconds per pass (65% shorter); this is a measured
+sample, not a guaranteed saving for other documents.

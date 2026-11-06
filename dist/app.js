@@ -1,5 +1,5 @@
-import {COUNTDOWN_MS,duration} from './protocol.js?v=3';
-import {encodeSquare as encode,measureSquare as measureText,SYMBOL_MS,bankSlot} from './square.js?v=3';
+import {COUNTDOWN_MS,duration} from './protocol.js?v=5';
+import {prepareSquare,SYMBOL_MS,bankSlot} from './square.js?v=5';
 const $ = id => document.getElementById(id);
 let transmitting = false, frame = 0, wakeLock = null, activeDecode = null;
 function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
@@ -13,9 +13,15 @@ $('decode-tab').onclick = () => mode('decode');
 $('about-button').onclick = () => $('about').showModal();
 $('close-about').onclick = () => $('about').close();
 $('about').onclick = event => { if (event.target === $('about')) { const r = $('about').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) $('about').close(); } };
-function updateEstimate() {
-  try { const data = measureText($('message').value); $('transmit-note').textContent = `~${duration(data.seconds + COUNTDOWN_MS / 1000)} to transmit`; $('transmit-note').title = `Includes the ${COUNTDOWN_MS / 1000}-second countdown. Each repeating pass takes about ${duration(data.seconds)} at ${1000 / SYMBOL_MS} patterns/s.`; $('play').disabled = false; }
-  catch (error) { $('transmit-note').textContent = $('message').value ? error.message : 'Your words stay here.'; $('play').disabled = true; }
+let preparedText=null,prepared=null,estimateVersion=0;
+function preparation(text){if(text!==preparedText){preparedText=text;prepared=prepareSquare(text);}return prepared;}
+async function updateEstimate() {
+ const version=++estimateVersion,text=$('message').value;
+ $('play').disabled=true;$('transmit-note').textContent=text?'Calculating…':'Your words stay here.';
+ try { const data=await preparation(text);if(version!==estimateVersion)return;
+ $('transmit-note').textContent=`~${duration(data.seconds+COUNTDOWN_MS/1000)} to transmit`;
+ $('transmit-note').title=`Includes the ${COUNTDOWN_MS/1000}-second countdown. Each pass takes about ${duration(data.seconds)} at 30 patterns/s${data.compressed?' with lossless compression':''}.`;$('play').disabled=false;
+ }catch(error){if(version===estimateVersion)$('transmit-note').textContent=text?error.message:'Your words stay here.';}
 }
 $('message').addEventListener('input', updateEstimate); updateEstimate();
 function draw(word,index=0,blank=false) {
@@ -40,7 +46,7 @@ $('stop').onclick = stop;
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && transmitting) stop(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && transmitting) { stop(); notice('Transmission stopped when the app went into the background. Press Play to restart.'); } });
 $('play').onclick = async () => {
-  let data; try { data = encode($('message').value); } catch (error) { notice(error.message); return; }
+  let data; try { data = await preparation($('message').value); } catch (error) { notice(error.message); return; }
   notice(); transmitting = true; $('stage').hidden = false; $('app').inert = true; $('stop').focus();
   // Fullscreen is optional: fixed-position stage is the fallback on mobile Safari.
   try { const p = $('stage').requestFullscreen?.(); p?.catch(() => {}); } catch {}
@@ -107,7 +113,7 @@ async function decodeFile(file) {
     const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    worker = new Worker(new URL('./worker.js?v=3', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./worker.js?v=5', import.meta.url), { type: 'module' });
     await workerCall(worker, { type: 'reset' }, signal);
     let answer = { result: null, found: 0, progress: { received: 0, total: 0 } };
     if(!video.requestVideoFrameCallback)throw new Error('Use a current browser with video-frame support to decode this recording.');

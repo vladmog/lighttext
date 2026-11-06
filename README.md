@@ -68,7 +68,7 @@ also decoded. These are synthetic checks, not real camera recordings.
 `main`. Enable GitHub Pages with **GitHub Actions** as its source. All assets use
 relative paths, so a repository URL works without a domain or server configuration.
 
-## Protocol (LTX1 and LTX2)
+## Protocol (LTX1, LTX2 and compressed LTX3)
 
 The standard transmitter uses one square 6×6 data grid at 30 patterns per second,
 with five shared fixed orientation markers. Checkerboard cell groups alternate:
@@ -118,3 +118,19 @@ screen refresh banding, glare, heavy blur, and performance on physical iOS/Andro
 hardware remain to be measured. No promise of compatibility with every phone or
 video codec. Missing/occluded markers and unreadable data produce a retry message,
 not guessed text. Browser textareas use LF line endings.
+
+## Lossless compression
+
+Before playback, the browser tries gzip compression and uses it only when the
+complete framed transmission has fewer patterns. The estimate and playback share
+that exact prepared payload. Short or incompressible messages retain the existing
+format. Compression uses built-in browser streams with no service or dependency.
+
+LTX3 uses the LTX2 packet layout with magic version byte `33` (hex). Its payload
+is the original UTF-8 byte length (four bytes, big-endian), original CRC-32 (four
+bytes), then gzip data. Packet CRC and whole-envelope CRC must pass before
+expansion; the original length, CRC and strict UTF-8 decoding must then pass before
+text is shown. Expansion stops if it exceeds the declared length. The 64-byte
+packet size and optical sequence/reference/parity cells are unchanged. Updated
+decoders accept older recordings; both devices should load the updated app for
+compressed transmissions. Savings depend on document content.

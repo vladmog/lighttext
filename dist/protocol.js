@@ -25,20 +25,20 @@ export function measureText(text, symbolMs = SYMBOL_MS) {
   const packets = Math.ceil(bytes / CHUNK_SIZE), symbols = bytes + packets * (bytes > 8192 ? 29 : 25);
   return { bytes, packets, symbols, seconds: symbols * symbolMs / 1000 };
 }
-export function encode(text) {
-  const bytes = enc.encode(text);
+export function encode(text) { return encodeBytes(enc.encode(text)); }
+export function encodeBytes(bytes, compressed = false) {
   if (!bytes.length) throw new Error('Enter a message first.');
   if (bytes.length > MAX_BYTES) throw new Error('This document exceeds the wire format capacity. Split it into smaller documents.');
   // Keep existing short-message recordings compatible; LTX2 widens chunk indexes
   // and counts to 32 bits so large documents do not wrap at 65,535 chunks.
-  const extended = bytes.length > 8192, header = extended ? 25 : 21;
+  const extended = compressed || bytes.length > 8192, header = extended ? 25 : 21;
   const id = crc32(bytes), count = Math.ceil(bytes.length / CHUNK_SIZE);
   const symbols = new Uint8Array(bytes.length + count * (header + 4));
   let offset = 0;
   for (let index = 0; index < count; index++) {
     const chunk = bytes.subarray(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE);
     const p = symbols.subarray(offset, offset + header + 4 + chunk.length);
-    p.set(MAGIC); if (extended) p[3] = 50;
+    p.set(MAGIC); if (extended) p[3] = compressed ? 51 : 50;
     put32(p, 8, id); put32(p, 12, bytes.length);
     if (extended) { put32(p, 16, index); put32(p, 20, count); p[24] = chunk.length; }
     else { p[16] = index >>> 8; p[17] = index & 255; p[18] = count >>> 8; p[19] = count & 255; p[20] = chunk.length; }
@@ -59,8 +59,8 @@ export class PacketDecoder {
   push(byte) {
     this.buffer.push(byte);
     while (this.buffer.length >= 8) {
-      if (!MAGIC.every((b, i) => i === 3 ? [49, 50].includes(this.buffer[i]) : this.buffer[i] === b)) { this.buffer.shift(); continue; }
-      const extended = this.buffer[3] === 50, header = extended ? 25 : 21;
+      if (!MAGIC.every((b, i) => i === 3 ? [49, 50, 51].includes(this.buffer[i]) : this.buffer[i] === b)) { this.buffer.shift(); continue; }
+      const compressed = this.buffer[3] === 51, extended = this.buffer[3] !== 49, header = extended ? 25 : 21;
       if (this.buffer.length < header) return;
       const h = Uint8Array.from(this.buffer.slice(0, header));
       const id = get32(h, 8), length = get32(h, 12);
@@ -74,7 +74,7 @@ export class PacketDecoder {
         this.bad++; this.buffer.shift(); continue;
       }
       this.buffer.splice(0, size + header + 4); this.checked++;
-      const key = `${id}:${length}`;
+      const key = `${compressed ? 3 : 1}:${id}:${length}`;
       if (!this.messages.has(key)) {
         // Bound memory even for a video containing many unrelated transmissions.
         if (this.messages.size >= 16) this.messages.delete(this.messages.keys().next().value);
@@ -84,7 +84,7 @@ export class PacketDecoder {
       if (m.chunks.size === count) {
         const all = new Uint8Array(length);
         for (const [i, c] of m.chunks) all.set(c, i * CHUNK_SIZE);
-        if (crc32(all) === id) { try { this.result = dec.decode(all); } catch { this.bad++; } }
+        if (crc32(all) === id) { try { this.result = compressed ? all : dec.decode(all); } catch { this.bad++; } }
       }
     }
   }
