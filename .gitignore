@@ -1,0 +1,4 @@
+node_modules/
+qa/*
+!qa/.gitkeep
+.DS_Store
