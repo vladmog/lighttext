@@ -1,3 +1,7 @@
+## Version 2.0.0
+
+The new 16×16 format passed user phone testing before promotion. Automated checks cover independent FEC arithmetic, missing units, CRC rejection, exact document recovery, mixed-bank images, and scheduler timing. WebKit and Chrome browser video round trips and a deliberately failed native-reader import passed for the integrated main app in Chrome and WebKit. All 38 automated tests passed. Broader physical-device coverage remains unverified. Earlier evidence below applies to the earlier format.
+
 # Verification — 2026-11-05
 
 ## Passed
