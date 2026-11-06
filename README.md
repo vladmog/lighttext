@@ -134,7 +134,7 @@ packet size and optical sequence/reference/parity cells are unchanged. Updated
 decoders accept older recordings; both devices should load the updated app for
 compressed transmissions. Savings depend on document content.
 
-Release version: **1.2.1**. The question-mark dialog displays the installed version.
+Release version: **1.2.2**. The question-mark dialog displays the installed version.
 For each release, update this version, package.json and the dialog together.
 
 ## Single transmission with recovery (1.2.0)
@@ -151,3 +151,9 @@ The complete-message checksum still must pass. Clean data can finish decoding
 before recovery arrives. No automatic repeat is transmitted. Recovery overhead is
 about 3% for full groups, proportionally larger for short messages; the estimate
 includes the exact additional patterns. Both devices need the updated decoder.
+
+If playback analysis is incomplete, the decoder automatically retries with paused
+seeks at 60 samples per second of video, awaiting each worker result. This avoids
+depending on playback callback delivery on busy devices. It may take longer and
+still requires sufficiently clear recorded images. The UI labels this stage
+“Rechecking frame by frame”; Cancel remains available throughout.

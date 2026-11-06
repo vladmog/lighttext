@@ -117,9 +117,9 @@ async function decodeFile(file) {
     worker = new Worker(new URL('./worker.js?v=8', import.meta.url), { type: 'module' });
     await workerCall(worker, { type: 'reset' }, signal);
     let answer = { result: null, found: 0, progress: { received: 0, total: 0 } };
-    if(!video.requestVideoFrameCallback)throw new Error('Use a current browser with video-frame support to decode this recording.');
+
     let callback=0;
-    answer=await new Promise((resolve,reject)=>{
+    if(video.requestVideoFrameCallback)answer=await new Promise((resolve,reject)=>{
       let pending=0,ended=false,finishing=false,settled=false,lastTimestamp=-Infinity,lastActivity=performance.now(),pausedForWork=false;
       const cleanup=()=>{clearInterval(watchdog);signal.removeEventListener('abort',cancel);video.cancelVideoFrameCallback(callback);video.pause();video.onended=null;video.onerror=null;worker.onmessage=null;worker.onerror=null;};
       const done=(error,value)=>{if(settled)return;settled=true;cleanup();error?reject(error):resolve(value);};
@@ -145,6 +145,25 @@ async function decodeFile(file) {
       video.playbackRate=.5;callback=video.requestVideoFrameCallback(pump);video.play().catch(error=>done(error));
       if(signal.aborted)cancel();
     });
+    // Playback callbacks can skip frames on busy/mobile browsers. If incomplete,
+    // retry with paused exact seeks and await every worker response. This path
+    // trades analysis time for consistent sampling, independent of playback speed.
+    if(answer.result===null){
+      video.pause();await workerCall(worker,{type:'reset'},signal);
+      const samples=Math.ceil(video.duration*60);
+      for(let i=0;i<samples;i++){
+        if(signal.aborted)throw abortError();
+        const time=Math.min((i+.1)/60,Math.max(0,video.duration-.001));
+        if(Math.abs(video.currentTime-time)>1e-7){const sought=waitEvent(video,'seeked',signal);video.currentTime=time;await sought;}
+        ctx.drawImage(video,0,0,canvas.width,canvas.height);
+        const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data.buffer;
+        answer=await workerCall(worker,{type:'frame',pixels,width:canvas.width,height:canvas.height,time},signal,[pixels]);
+        $('progress').value=(i+1)/samples;const p=answer.progress;
+        $('decode-status').textContent=`Rechecking frame by frame · ${Math.round((i+1)/samples*100)}%${p.received?` · ${p.received} of ${p.total} parts`:''}`;
+        if(answer.result!==null)break;
+      }
+      if(answer.result===null)answer=await workerCall(worker,{type:'finish'},signal);
+    }
     if (answer.result !== null) { $('result').value = answer.result; decodeView('result-area'); $('copy').focus(); }
     else {
       decodeView('upload-area'); const p = answer.progress;
